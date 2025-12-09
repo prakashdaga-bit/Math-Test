@@ -3,7 +3,6 @@ import google.generativeai as genai
 import os
 
 # 1. Setup
-# We look for GEMINI_API_KEY in secrets first, then environment variables
 try:
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -19,14 +18,18 @@ except Exception as e:
 # 2. Logic Functions
 
 def get_new_question():
-    """Fetches a new question and resets all states."""
+    """Fetches a new question based on Grade, Topic, and Difficulty."""
     model = genai.GenerativeModel("models/gemini-2.5-flash")
     
     topic = st.session_state.opt_topic
     difficulty = st.session_state.opt_difficulty
+    grade = st.session_state.opt_grade
     
+    # Updated Prompt to include Grade Level
     prompt = f"""
-    Generate a unique, {difficulty}-level math practice question specifically about {topic}.
+    Generate a unique math practice question specifically for a student in {grade}.
+    The topic is {topic}.
+    The difficulty level for this specific grade should be {difficulty}.
     
     Output exactly in this format:
     [The Question Text]
@@ -121,6 +124,14 @@ def show_answer():
 with st.sidebar:
     st.header("Settings")
     
+    # NEW: Grade Level
+    st.selectbox(
+        "Select Grade Level",
+        [f"Grade {i}" for i in range(1, 13)] + ["College/University"],
+        key="opt_grade",
+        on_change=get_new_question
+    )
+
     st.selectbox(
         "Select Topic",
         ["Arithmetic", "Algebra", "Geometry", "Trigonometry", "Calculus", "Statistics", "Linear Algebra"],
@@ -130,7 +141,7 @@ with st.sidebar:
     
     st.selectbox(
         "Select Difficulty",
-        ["Beginner", "Intermediate", "Advanced"],
+        ["Easy", "Medium", "Hard"], # Renamed for clarity within grade levels
         key="opt_difficulty",
         on_change=get_new_question
     )
@@ -148,7 +159,8 @@ if 'question_text' not in st.session_state:
 
 # 5. Main UI Layout
 st.title("Math Practice Generator")
-st.caption(f"Topic: {st.session_state.opt_topic} | Level: {st.session_state.opt_difficulty}")
+# Updated caption to include Grade
+st.caption(f"Topic: {st.session_state.opt_topic} | Grade: {st.session_state.opt_grade} | Level: {st.session_state.opt_difficulty}")
 
 if 'question_text' in st.session_state:
     st.markdown("### Question")
