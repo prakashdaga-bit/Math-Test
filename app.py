@@ -53,7 +53,7 @@ def save_data(name, topic, score, grade):
 def get_gemini_questions(grade, curriculum, topic, num_questions, user_context=""):
     """Call Gemini to generate a JSON quiz."""
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash-001')
+    model = genai.GenerativeModel('gemini-1.5-flash')
     prompt = f"""
     You are an expert math tutor. Create a quiz for a Grade {grade} student following the {curriculum} curriculum.
     Topic: {topic}
