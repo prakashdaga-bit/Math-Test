@@ -1,220 +1,182 @@
-
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
-import pandas as pd
 import google.generativeai as genai
-import json
-from datetime import date
+import os
 
-# --- PAGE CONFIGURATION ---
-st.set_page_config(page_title="IGCSE Math Tutor", page_icon="📐", layout="wide")
+# 1. Setup
+# os.environ["GOOGLE_API_KEY"] = "YOUR_API_KEY"
+genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
-# --- 1. SETUP & AUTHENTICATION ---
-# Load Gemini API Key from Secrets
-try:
-    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-except (FileNotFoundError, KeyError):
-    st.error("Missing GEMINI_API_KEY in secrets.toml")
-    st.stop()
+# 2. Logic Functions
 
-# Initialize Google Sheets Connection
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-# --- 2. HELPER FUNCTIONS ---
-
-def get_data():
-    """Fetch all history from Google Sheets."""
-    try:
-        # read() returns a pandas DataFrame
-        df = conn.read(worksheet="History", usecols=list(range(5)), ttl=5)
-        # Ensure correct data types
-        if not df.empty:
-            df = df.dropna(how='all')
-            df['Date'] = pd.to_datetime(df['Date']).dt.date
-        return df
-    except Exception:
-        # Return empty structure if sheet is new/empty
-        return pd.DataFrame(columns=["Date", "Name", "Topic", "Score", "Grade"])
-
-def save_data(name, topic, score, grade):
-    """Append a new quiz result to Google Sheets."""
-    df = get_data()
-    new_row = pd.DataFrame([{
-        "Date": str(date.today()),
-        "Name": name.lower().strip(),
-        "Topic": topic,
-        "Score": score,
-        "Grade": grade
-    }])
-    # Combine old data with new row
-    updated_df = pd.concat([df, new_row], ignore_index=True)
-    # Update the sheet
-    conn.update(worksheet="History", data=updated_df)
-
-def get_gemini_questions(grade, curriculum, topic, num_questions, user_context=""):
-    """Call Gemini to generate a JSON quiz."""
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('models/gemini-2.5-flash')
+def get_new_question():
+    """Fetches a new question and resets all states (hint, answer, input)."""
+    model = genai.GenerativeModel("models/gemini-2.5-flash")
+    
+    topic = st.session_state.opt_topic
+    difficulty = st.session_state.opt_difficulty
+    
     prompt = f"""
-    You are an expert math tutor. Create a quiz for a Grade {grade} student following the {curriculum} curriculum.
-    Topic: {topic}
-    Number of questions: {num_questions}
+    Generate a unique, {difficulty}-level math practice question specifically about {topic}.
     
-    Student Context (Previous Weaknesses): {user_context}
-    
-    Strictly output VALID JSON in the following format (no markdown, no ```):
-    [
-        {{
-            "question": "Question text here",
-            "options": ["Option A", "Option B", "Option C", "Option D"],
-            "correct_answer": "Option A",
-            "explanation": "Brief explanation of the solution."
-        }}
-    ]
+    Output exactly in this format:
+    [The Question Text]
+    |||
+    [The Step-by-step Answer]
     """
     
     try:
         response = model.generate_content(prompt)
-        # Clean response to ensure pure JSON
-        text = response.text.replace("```json", "").replace("```", "").strip()
-        return json.loads(text)
-    except Exception as e:
-        st.error(f"AI Generation Error: {e}")
-        return []
-
-# --- 3. UI: SIDEBAR (Login & Settings) ---
-with st.sidebar:
-    st.title("Settings")
-    
-    # User Login
-    current_user = st.text_input("👤 Student Name").strip().lower()
-    
-    st.divider()
-    
-    # Quiz Settings
-    st.subheader("Quiz Configuration")
-    grade = st.selectbox("Grade", ["Grade 5", "Grade 6", "Grade 7", "Grade 8"], index=1)
-    curriculum = st.selectbox("Curriculum", ["IGCSE", "IB MYP", "CBSE", "Common Core"])
-    topic = st.text_input("Topic", "Algebra - Linear Equations")
-    num_q = st.slider("Number of Questions", 1, 10, 5)
-    
-    # Generate Button
-    start_btn = st.button("🚀 Generate New Quiz")
-
-# --- 4. MAIN INTERFACE ---
-st.title("📐 IGCSE Daily Math Practice")
-
-if not current_user:
-    st.info("👈 Please enter your Name in the sidebar to start tracking your progress.")
-    st.stop()
-
-# --- 5. ANALYTICS DASHBOARD ---
-# Fetch data and filter for current user
-df_all = get_data()
-if not df_all.empty:
-    user_history = df_all[df_all['Name'] == current_user]
-else:
-    user_history = pd.DataFrame()
-
-if not user_history.empty:
-    # Stats
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Quizzes", len(user_history))
-    avg_score = user_history['Score'].mean()
-    col2.metric("Average Score", f"{avg_score:.1f}%")
-    
-    # Check if practiced today
-    today = date.today()
-    last_practice = user_history['Date'].max()
-    is_done_today = last_practice == today
-    col3.metric("Status Today", "✅ Done" if is_done_today else "❌ Not yet")
-    
-    # Identification of Weak Areas (Simple logic: Topics with avg score < 70%)
-    topic_perf = user_history.groupby('Topic')['Score'].mean()
-    weak_topics = topic_perf[topic_perf < 70].index.tolist()
-    
-    with st.expander("📊 View Progress History"):
-        st.dataframe(user_history.sort_values(by='Date', ascending=False))
-        if weak_topics:
-            st.warning(f"Focus Areas (Avg < 70%): {', '.join(weak_topics)}")
-            user_context_str = f"Student struggles with: {', '.join(weak_topics)}"
+        text = response.text
+        
+        if "|||" in text:
+            q, a = text.split("|||")
+            st.session_state.question_text = q.strip()
+            st.session_state.answer_text = a.strip()
         else:
-            user_context_str = ""
-else:
-    st.info(f"Welcome, {current_user.title()}! Your history will appear here after your first quiz.")
-    user_context_str = ""
-
-st.divider()
-
-# --- 6. QUIZ LOGIC ---
-
-# Initialize Session State
-if 'quiz_data' not in st.session_state:
-    st.session_state['quiz_data'] = None
-if 'quiz_active' not in st.session_state:
-    st.session_state['quiz_active'] = False
-if 'current_q_index' not in st.session_state:
-    st.session_state['current_q_index'] = 0
-if 'current_score' not in st.session_state:
-    st.session_state['current_score'] = 0
-
-# Trigger: Generate Quiz
-if start_btn:
-    with st.spinner("Gemini is crafting questions just for you..."):
-        # Pass user context (weak topics) to AI
-        questions = get_gemini_questions(grade, curriculum, topic, num_q, user_context_str)
-        if questions:
-            st.session_state['quiz_data'] = questions
-            st.session_state['current_q_index'] = 0
-            st.session_state['current_score'] = 0
-            st.session_state['quiz_active'] = True
-            st.rerun()
-
-# Display Quiz
-if st.session_state['quiz_active'] and st.session_state['quiz_data']:
-    q_idx = st.session_state['current_q_index']
-    quiz = st.session_state['quiz_data']
-    total_q = len(quiz)
-    
-    # Progress Bar
-    st.progress((q_idx) / total_q)
-    
-    if q_idx < total_q:
-        question_item = quiz[q_idx]
-        
-        st.subheader(f"Question {q_idx + 1}")
-        st.markdown(f"**{question_item['question']}**")
-        
-        # Answer Selection
-        choice = st.radio("Select Answer:", question_item['options'], key=f"q_{q_idx}")
-        
-        # Check Answer Button
-        if st.button("Submit Answer"):
-            if choice == question_item['correct_answer']:
-                st.success("✅ Correct!")
-                st.session_state['current_score'] += 1
-            else:
-                st.error(f"❌ Incorrect. The correct answer was: {question_item['correct_answer']}")
-                st.info(f"📝 Explanation: {question_item['explanation']}")
+            st.session_state.question_text = text
+            st.session_state.answer_text = "Error parsing answer."
             
-            # Move to next logic
-            if st.button("Next Question ➡️"):
-                st.session_state['current_q_index'] += 1
-                st.rerun()
-                
-    else:
-        # --- QUIZ COMPLETE ---
-        final_score = (st.session_state['current_score'] / total_q) * 100
-        st.balloons()
-        
-        st.success(f"🎉 Quiz Finished! You scored {final_score:.0f}%")
-        
-        if st.button("💾 Save Results"):
-            with st.spinner("Saving to database..."):
-                save_data(current_user, topic, final_score, grade)
-            st.success("Saved! Check your history above.")
-            st.session_state['quiz_active'] = False
-            st.rerun()
+        # Reset UI states
+        st.session_state.reveal_answer = False
+        st.session_state.feedback = "" 
+        st.session_state.user_input = "" 
+        st.session_state.hint_text = "" # Clear the hint
+            
+    except Exception as e:
+        st.error(f"Error: {e}")
 
-elif not st.session_state['quiz_active']:
-    st.markdown("### Ready to practice? Configure the settings on the left and click **Generate New Quiz**.")
+def get_hint():
+    """Asks AI for a hint based on the current question and answer."""
+    # Don't generate if we already have one
+    if st.session_state.hint_text:
+        return
+
+    model = genai.GenerativeModel("models/gemini-2.5-flash")
+    
+    q = st.session_state.question_text
+    a = st.session_state.answer_text
+    
+    prompt = f"""
+    You are a helpful tutor.
+    The Student is stuck on this question: "{q}"
+    The solution is: "{a}"
+    
+    Provide a short, helpful hint that guides them towards the right strategy.
+    Do NOT reveal the final answer or the full calculation. 
+    Just give a clue.
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        st.session_state.hint_text = response.text
+    except Exception as e:
+        st.error(f"Error getting hint: {e}")
+
+def check_answer():
+    """Uses Gemini to grade the answer."""
+    user_ans = st.session_state.user_input
+    correct_ans = st.session_state.answer_text
+    question = st.session_state.question_text
+    
+    if not user_ans:
+        st.session_state.feedback = "Please enter an answer first."
+        return
+
+    # AI Judge
+    judge_model = genai.GenerativeModel("models/gemini-2.5-flash")
+    judge_prompt = f"""
+    You are a math teacher.
+    Question: {question}
+    Correct Answer: {correct_ans}
+    Student Answer: {user_ans}
+    
+    Is the student's answer correct? 
+    Reply with ONLY the word "CORRECT" or "INCORRECT".
+    """
+    
+    try:
+        response = judge_model.generate_content(judge_prompt)
+        result = response.text.strip().upper()
+        
+        if "CORRECT" in result:
+            st.session_state.feedback = "✅ Correct! Great job."
+            st.session_state.reveal_answer = True 
+        else:
+            st.session_state.feedback = "❌ Incorrect. Try again or click 'Show Answer'."
+            
+    except Exception as e:
+        st.error(f"Error grading: {e}")
+
+def show_answer():
+    st.session_state.reveal_answer = True
+
+# 3. Sidebar Configuration
+with st.sidebar:
+    st.header("Settings")
+    
+    st.selectbox(
+        "Select Topic",
+        ["Arithmetic", "Algebra", "Geometry", "Trigonometry", "Calculus", "Statistics", "Linear Algebra"],
+        key="opt_topic",
+        on_change=get_new_question
+    )
+    
+    st.selectbox(
+        "Select Difficulty",
+        ["Beginner", "Intermediate", "Advanced"],
+        key="opt_difficulty",
+        on_change=get_new_question
+    )
+
+    st.markdown("---")
+    st.write("Each time you change a setting, a new question is generated automatically.")
+
+# 4. Initialization
+if 'question_text' not in st.session_state:
+    st.session_state.user_input = ""
+    st.session_state.feedback = ""
+    st.session_state.hint_text = ""
+    get_new_question()
+
+# 5. Main UI Layout
+st.title("Math Practice Generator")
+st.caption(f"Topic: {st.session_state.opt_topic} | Level: {st.session_state.opt_difficulty}")
+
+st.markdown("### Question")
+st.info(st.session_state.question_text)
+
+# Hint Display (Shows up only if hint_text exists)
+if st.session_state.hint_text:
+    st.warning(f"💡 **Hint:** {st.session_state.hint_text}")
+
+# Input Section
+st.markdown("### Your Answer")
+st.text_input("Type your answer here:", key="user_input")
+
+# Button Layout (4 Columns)
+col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+
+with col1:
+    st.button("Submit Answer", on_click=check_answer)
+
+with col2:
+    st.button("Get Hint", on_click=get_hint)
+
+with col3:
+    st.button("Show Answer", on_click=show_answer)
+
+with col4:
+    st.button("Next Question", on_click=get_new_question)
+
+# Feedback Display
+if st.session_state.feedback:
+    if "Correct!" in st.session_state.feedback:
+        st.success(st.session_state.feedback)
+    else:
+        st.error(st.session_state.feedback)
+
+# Answer Display
+if st.session_state.reveal_answer:
+    st.markdown("---")
+    st.markdown("### Explanation")
+    st.write(st.session_state.answer_text)
