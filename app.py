@@ -3,7 +3,6 @@ import google.generativeai as genai
 import os
 import pandas as pd
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
 # --- CONFIGURATION & SETUP ---
@@ -21,56 +20,59 @@ except Exception as e:
     st.error(f"Error configuring Gemini API: {e}")
     st.stop()
 
-# 2. Optimized Google Sheets Connection (Cached)
-# This @st.cache_resource decorator makes the connection 100x faster
+# 2. Optimized Google Sheets Connection (Modern Method)
 @st.cache_resource
 def get_google_sheet_client():
-    """Authenticates and returns the gspread client. Cached for speed."""
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    
-    # Convert Streamlit secrets to a normal dict so we can modify it
-    creds_dict = dict(st.secrets["gcp_service_account"])
-    
-    # CRITICAL FIX: Handle newline characters in private_key
-    # This fixes the "No key could be detected" error
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    return gspread.authorize(creds)
+    """Authenticates using the modern gspread method."""
+    try:
+        # Fetch the secrets dictionary
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        
+        # --- NUCLEAR KEY FIX ---
+        # This block forces the private key into the correct format 
+        # regardless of how it was pasted (escaped \n, literal newlines, etc)
+        private_key = creds_dict.get("private_key", "")
+        if "\\n" in private_key:
+            private_key = private_key.replace("\\n", "\n")
+        
+        creds_dict["private_key"] = private_key
+        # -----------------------
+        
+        # Use the modern native auth method
+        client = gspread.service_account_from_dict(creds_dict)
+        return client
+        
+    except Exception as e:
+        st.error(f"Authentication Error: {e}")
+        return None
 
 def save_to_google_sheet(data_row):
-    """Appends a row to the sheet using the cached client."""
+    """Appends a row to the sheet."""
     try:
         client = get_google_sheet_client()
-        # Fallback to a default name if not in secrets
+        if not client:
+            return False
+            
         sheet_name = st.secrets.get("SHEET_NAME", "Math Practice History")
         sheet = client.open(sheet_name).sheet1
         sheet.append_row(data_row)
         return True
     except Exception as e:
-        st.warning(f"⚠️ Could not save to Google Sheet: {e}")
+        st.warning(f"⚠️ Could not save to Google Sheet. Check that the sheet name '{st.secrets.get('SHEET_NAME')}' matches exactly and is shared with the service account email.")
         return False
 
 # --- LOGIC FUNCTIONS ---
 
 def get_current_difficulty(q_number):
     """Determines difficulty based on question number (1-25)."""
-    # Q1-7: Easy
-    if q_number <= 7:
-        return "Easy"
-    # Q8-15: Medium (Next 8)
-    elif q_number <= 15:
-        return "Medium"
-    # Q16-25: Hard (Final 10)
-    else:
-        return "Hard"
+    if q_number <= 7: return "Easy"
+    elif q_number <= 15: return "Medium"
+    else: return "Hard"
 
 def get_new_question():
     """Fetches a new question based on the specific progression logic."""
     model = genai.GenerativeModel("models/gemini-2.5-flash")
     
-    # Check if session is over
     if st.session_state.question_count > 25:
         st.session_state.question_text = "🎉 You have completed all 25 questions! Great job."
         st.session_state.is_finished = True
@@ -78,8 +80,6 @@ def get_new_question():
 
     topic = st.session_state.opt_topic
     grade = st.session_state.opt_grade
-    
-    # Automate Difficulty
     difficulty = get_current_difficulty(st.session_state.question_count)
     
     prompt = f"""
@@ -105,7 +105,6 @@ def get_new_question():
             st.session_state.question_text = text
             st.session_state.answer_text = "Error parsing answer."
             
-        # Reset UI states
         st.session_state.reveal_answer = False
         st.session_state.feedback = "" 
         st.session_state.user_input = "" 
@@ -114,7 +113,7 @@ def get_new_question():
         st.error(f"Error generating question: {e}")
 
 def check_answer():
-    """Grades the answer, Updates Score, Saves to Sheet, and Auto-Advances."""
+    """Grades, Updates Score, Saves to Sheet, and Auto-Advances."""
     user_ans = st.session_state.user_input
     correct_ans = st.session_state.answer_text
     question = st.session_state.question_text
@@ -141,13 +140,7 @@ def check_answer():
         response = judge_model.generate_content(judge_prompt)
         result_text = response.text.strip().upper()
         
-        # LOGIC FIX: Explicitly check for INCORRECT first to avoid partial matching errors
-        if "INCORRECT" in result_text:
-            is_correct = False
-        elif "CORRECT" in result_text:
-            is_correct = True
-        else:
-            is_correct = False 
+        is_correct = "CORRECT" in result_text
         
         if is_correct:
             st.session_state.feedback = "✅ Correct!"
@@ -155,7 +148,7 @@ def check_answer():
         else:
             st.session_state.feedback = f"❌ Incorrect. The answer was: {correct_ans}"
         
-        # Save Logic (Prevents double saving)
+        # Save Logic
         current_q_signature = f"{st.session_state.question_count}-{question[:10]}"
         
         if st.session_state.last_logged != current_q_signature:
@@ -183,7 +176,6 @@ def check_answer():
                 status
             ]
             
-            # Save to sheet in background
             save_to_google_sheet(row_data)
             
             st.session_state.last_logged = current_q_signature
@@ -193,7 +185,6 @@ def check_answer():
         st.error(f"Error grading: {e}")
 
 def next_question_handler():
-    """Increments counter and loads next Q."""
     st.session_state.question_count += 1
     get_new_question()
 
@@ -205,13 +196,11 @@ if 'init' not in st.session_state:
     st.session_state.feedback = ""
     st.session_state.is_finished = False
     
-    # Score & Progression
     st.session_state.score_correct = 0
     st.session_state.question_count = 1 
     st.session_state.history_list = []
     st.session_state.last_logged = ""
     
-    # Defaults
     if "GEMINI_API_KEY" in st.secrets or "GEMINI_API_KEY" in os.environ:
         st.session_state.opt_grade = "Grade 5" 
         st.session_state.opt_topic = "Arithmetic" 
@@ -222,7 +211,6 @@ with st.sidebar:
     st.header("User Profile")
     st.text_input("Enter your name:", value="Student", key="user_name_input")
     
-    # Progress Bar Logic
     progress = min(st.session_state.question_count / 25, 1.0)
     st.progress(progress)
     st.write(f"Question: {min(st.session_state.question_count, 25)} / 25")
@@ -246,7 +234,6 @@ with st.sidebar:
 # --- MAIN UI ---
 st.title(f"🎓 {st.session_state.user_name_input}'s Math Test")
 
-# Difficulty Label
 if not st.session_state.is_finished:
     curr_diff = get_current_difficulty(st.session_state.question_count)
     st.caption(f"Topic: {st.session_state.opt_topic} | Grade: {st.session_state.opt_grade} | Difficulty: **{curr_diff}**")
@@ -259,7 +246,6 @@ if not st.session_state.is_finished:
 
     col1, col2 = st.columns([1, 1])
     
-    # Hint button removed as requested
     with col1: 
         st.button("Submit Answer", on_click=check_answer)
     with col2: 
@@ -279,4 +265,10 @@ if not st.session_state.is_finished:
 else:
     st.success("🎉 You have finished the practice session!")
     st.balloons()
-    st.write
+    st.write(f"Final Score: {st.session_state.score_correct} / 25")
+
+if st.session_state.history_list:
+    st.markdown("---")
+    st.markdown("### 📜 Session History")
+    df = pd.DataFrame(st.session_state.history_list)
+    st.dataframe(df, use_container_width=True)
