@@ -4,3 +4,4 @@ pandas
 st-gsheets-connection
 gspread
 oauth2client
+google-auth
