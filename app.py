@@ -20,23 +20,34 @@ except Exception as e:
     st.error(f"Error configuring Gemini API: {e}")
     st.stop()
 
-# 2. Optimized Google Sheets Connection (Modern Method)
+# 2. Optimized Google Sheets Connection (Robust Auth)
 @st.cache_resource
 def get_google_sheet_client():
-    """Authenticates using the modern gspread method."""
+    """Authenticates using a robust key cleaning method."""
     try:
         # Fetch the secrets dictionary
+        # We use dict() to ensure we have a mutable copy
+        if "gcp_service_account" not in st.secrets:
+            st.error("Secrets Error: Section [gcp_service_account] not found.")
+            return None
+            
         creds_dict = dict(st.secrets["gcp_service_account"])
         
-        # --- NUCLEAR KEY FIX ---
-        # This block forces the private key into the correct format 
-        # regardless of how it was pasted (escaped \n, literal newlines, etc)
+        # --- KEY REPAIR STATION ---
         private_key = creds_dict.get("private_key", "")
+        
+        # 1. Fix escaped newlines (common in TOML/JSON copies)
         if "\\n" in private_key:
             private_key = private_key.replace("\\n", "\n")
-        
+            
+        # 2. Check for missing Headers (The cause of "No key detected")
+        if "-----BEGIN PRIVATE KEY-----" not in private_key:
+            # Try to force add them if missing
+            private_key = "-----BEGIN PRIVATE KEY-----\n" + private_key + "\n-----END PRIVATE KEY-----"
+            
+        # 3. Apply the fix
         creds_dict["private_key"] = private_key
-        # -----------------------
+        # ---------------------------
         
         # Use the modern native auth method
         client = gspread.service_account_from_dict(creds_dict)
@@ -44,6 +55,7 @@ def get_google_sheet_client():
         
     except Exception as e:
         st.error(f"Authentication Error: {e}")
+        st.info("Tip: Check that your 'private_key' in secrets starts with '-----BEGIN PRIVATE KEY-----' and ends with '-----END PRIVATE KEY-----'")
         return None
 
 def save_to_google_sheet(data_row):
