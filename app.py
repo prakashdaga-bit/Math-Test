@@ -143,9 +143,9 @@ def check_answer():
     
     Compare the Student Answer to the Correct Answer.
     If they are mathematically equivalent (e.g., 0.5 and 1/2), it is CORRECT.
-    If they are wrong, it is INCORRECT.
+    If they are wrong, it is WRONG.
     
-    Reply with ONLY one word: "CORRECT" or "INCORRECT".
+    Reply with ONLY one word: "CORRECT" or "WRONG".
     """
     
     try:
@@ -158,14 +158,14 @@ def check_answer():
             st.session_state.feedback = "✅ Correct!"
             st.session_state.score_correct += 1
         else:
-            st.session_state.feedback = f"❌ Incorrect. The answer was: {correct_ans}"
+            st.session_state.feedback = f"❌ Wrong. The answer was: {correct_ans}"
         
         # Save Logic
         current_q_signature = f"{st.session_state.question_count}-{question[:10]}"
         
         if st.session_state.last_logged != current_q_signature:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            status = "Correct" if is_correct else "Incorrect"
+            status = "Correct" if is_correct else "Wrong"
             difficulty = get_current_difficulty(st.session_state.question_count)
             
             # Save Local
