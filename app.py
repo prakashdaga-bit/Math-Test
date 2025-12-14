@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import gspread
 from datetime import datetime
+import threading  # NEW: For background saving
 
 # --- CONFIGURATION & SETUP ---
 
@@ -20,69 +21,57 @@ except Exception as e:
     st.error(f"Error configuring Gemini API: {e}")
     st.stop()
 
-# 2. Optimized Google Sheets Connection (Robust Auth)
+# 2. Optimized Google Sheets Connection
 @st.cache_resource
 def get_google_sheet_client():
-    """Authenticates using a robust key cleaning method."""
     try:
-        # Fetch the secrets dictionary
-        # We use dict() to ensure we have a mutable copy
         if "gcp_service_account" not in st.secrets:
-            st.error("Secrets Error: Section [gcp_service_account] not found.")
             return None
-            
         creds_dict = dict(st.secrets["gcp_service_account"])
-        
-        # --- KEY REPAIR STATION ---
-        private_key = creds_dict.get("private_key", "")
-        
-        # 1. Fix escaped newlines (common in TOML/JSON copies)
-        if "\\n" in private_key:
-            private_key = private_key.replace("\\n", "\n")
-            
-        # 2. Check for missing Headers (The cause of "No key detected")
-        if "-----BEGIN PRIVATE KEY-----" not in private_key:
-            # Try to force add them if missing
-            private_key = "-----BEGIN PRIVATE KEY-----\n" + private_key + "\n-----END PRIVATE KEY-----"
-            
-        # 3. Apply the fix
-        creds_dict["private_key"] = private_key
-        # ---------------------------
-        
-        # Use the modern native auth method
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
         client = gspread.service_account_from_dict(creds_dict)
         return client
-        
-    except Exception as e:
-        st.error(f"Authentication Error: {e}")
-        st.info("Tip: Check that your 'private_key' in secrets starts with '-----BEGIN PRIVATE KEY-----' and ends with '-----END PRIVATE KEY-----'")
+    except Exception:
         return None
 
-def save_to_google_sheet(data_row):
-    """Appends a row to the sheet."""
+def save_to_google_sheet_background(data_row):
+    """Runs in a separate thread to avoid freezing the app."""
     try:
         client = get_google_sheet_client()
-        if not client:
-            return False
-            
-        sheet_name = st.secrets.get("SHEET_NAME", "Math Practice History")
-        sheet = client.open(sheet_name).sheet1
-        sheet.append_row(data_row)
-        return True
+        if client:
+            sheet_name = st.secrets.get("SHEET_NAME", "Math Practice History")
+            sheet = client.open(sheet_name).sheet1
+            sheet.append_row(data_row)
     except Exception as e:
-        st.warning(f"⚠️ Could not save to Google Sheet. Check that the sheet name '{st.secrets.get('SHEET_NAME')}' matches exactly and is shared with the service account email.")
-        return False
+        print(f"Background save failed: {e}")
+
+def trigger_background_save(data_row):
+    """Starts the save process without making the user wait."""
+    thread = threading.Thread(target=save_to_google_sheet_background, args=(data_row,))
+    thread.start()
 
 # --- LOGIC FUNCTIONS ---
 
 def get_current_difficulty(q_number):
-    """Determines difficulty based on question number (1-25)."""
-    if q_number <= 7: return "Easy"
-    elif q_number <= 15: return "Medium"
-    else: return "Hard"
+    if q_number <= 7: return "Easy (Foundation)"
+    elif q_number <= 15: return "Medium (Crossover)"
+    else: return "Hard (Higher)"
+
+def get_curriculum_context(topic):
+    """Maps the high-level topic to specific GCSE sub-skills."""
+    curriculum_map = {
+        "Place Value & Rounding": "multiplying and dividing by powers of 10, rounding to significant figures and decimal places, estimation.",
+        "Decimals": "ordering decimals, adding and subtracting decimals, multiplying and dividing decimals by integers and other decimals.",
+        "Angles & Construction": "sum of angles (360 degrees), intersecting lines, drawing lines and quadrilaterals, vertically opposite angles.",
+        "Collecting Data": "conducting investigations, taking a sample, bias, questionnaires, tally charts.",
+        "Fractions": "ordering fractions, adding mixed numbers, multiplying and dividing fractions, reciprocals.",
+        "Shapes & Areas": "converting units for area (m2 to cm2), hectares, area of triangles/parallelograms, volume and surface area of cubes and cuboids.",
+        "Percentages": "converting between fractions/decimals/percentages, finding percentage of amounts, percentage change."
+    }
+    return curriculum_map.get(topic, "GCSE Maths curriculum")
 
 def get_new_question():
-    """Fetches a new question based on the specific progression logic."""
     model = genai.GenerativeModel("models/gemini-2.5-flash")
     
     if st.session_state.question_count > 25:
@@ -93,16 +82,25 @@ def get_new_question():
     topic = st.session_state.opt_topic
     grade = st.session_state.opt_grade
     difficulty = get_current_difficulty(st.session_state.question_count)
+    sub_topic_context = get_curriculum_context(topic)
     
     prompt = f"""
-    Generate a unique math practice question specifically for a student in {grade}.
-    The topic is {topic}.
-    The difficulty level is {difficulty} (Question {st.session_state.question_count} of 25).
+    Act as a GCSE Maths teacher creating a worksheet question similar to CorbettMaths style.
+    
+    Target Student: {grade}
+    Topic: {topic}
+    Specific Skills to Test: {sub_topic_context}
+    Difficulty: {difficulty} (Question {st.session_state.question_count} of 25)
+    
+    Requirements:
+    1. The question must be clear and direct.
+    2. If it is a word problem, use British English (e.g., £ for currency, metres for distance).
+    3. Ensure the numbers are clean enough to be solved without a calculator if appropriate for the topic.
     
     Output exactly in this format:
     [The Question Text]
     |||
-    [The Step-by-step Answer]
+    [The Final Numerical Answer or Short Phrase]
     """
     
     try:
@@ -125,7 +123,6 @@ def get_new_question():
         st.error(f"Error generating question: {e}")
 
 def check_answer():
-    """Grades, Updates Score, Saves to Sheet, and Auto-Advances."""
     user_ans = st.session_state.user_input
     correct_ans = st.session_state.answer_text
     question = st.session_state.question_text
@@ -134,67 +131,64 @@ def check_answer():
         st.session_state.feedback = "Please enter an answer first."
         return
 
-    judge_model = genai.GenerativeModel("models/gemini-2.5-flash")
+    # Quick local check for exact matches to speed up simple answers
+    if user_ans.strip() == correct_ans.strip():
+        is_correct = True
+    else:
+        # Fallback to AI Judge for varied formats (e.g. 1/2 vs 0.5)
+        try:
+            judge_model = genai.GenerativeModel("models/gemini-2.5-flash")
+            judge_prompt = f"""
+            Question: {question}
+            Correct Answer: {correct_ans}
+            Student Answer: {user_ans}
+            
+            Compare the Student Answer to the Correct Answer.
+            Ignore minor formatting differences (e.g. £10 vs 10 pounds, 0.5 vs 1/2).
+            Reply with ONLY one word: "CORRECT" or "INCORRECT".
+            """
+            response = judge_model.generate_content(judge_prompt)
+            is_correct = "CORRECT" in response.text.strip().upper()
+        except:
+            is_correct = False
+
+    if is_correct:
+        st.session_state.feedback = "✅ Correct!"
+        st.session_state.score_correct += 1
+    else:
+        st.session_state.feedback = f"❌ Incorrect. The answer was: {correct_ans}"
     
-    judge_prompt = f"""
-    Question: {question}
-    Correct Answer: {correct_ans}
-    Student Answer: {user_ans}
+    # Save Logic
+    current_q_signature = f"{st.session_state.question_count}-{question[:10]}"
     
-    Compare the Student Answer to the Correct Answer.
-    If they are mathematically equivalent (e.g., 0.5 and 1/2), it is CORRECT.
-    If they are wrong, it is WRONG.
-    
-    Reply with ONLY one word: "CORRECT" or "WRONG".
-    """
-    
-    try:
-        response = judge_model.generate_content(judge_prompt)
-        result_text = response.text.strip().upper()
+    if st.session_state.last_logged != current_q_signature:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        status = "Correct" if is_correct else "Incorrect"
+        difficulty = get_current_difficulty(st.session_state.question_count)
         
-        is_correct = "CORRECT" in result_text
+        st.session_state.history_list.append({
+            "Q#": st.session_state.question_count,
+            "Topic": st.session_state.opt_topic,
+            "Difficulty": difficulty,
+            "Result": status
+        })
         
-        if is_correct:
-            st.session_state.feedback = "✅ Correct!"
-            st.session_state.score_correct += 1
-        else:
-            st.session_state.feedback = f"❌ Wrong. The answer was: {correct_ans}"
+        row_data = [
+            timestamp,
+            st.session_state.user_name_input,
+            st.session_state.opt_grade,
+            st.session_state.opt_topic,
+            difficulty,
+            question,
+            user_ans,
+            status
+        ]
         
-        # Save Logic
-        current_q_signature = f"{st.session_state.question_count}-{question[:10]}"
+        # KEY SPEED FIX: Fire and forget (Background Thread)
+        trigger_background_save(row_data)
         
-        if st.session_state.last_logged != current_q_signature:
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            status = "Correct" if is_correct else "Wrong"
-            difficulty = get_current_difficulty(st.session_state.question_count)
-            
-            # Save Local
-            st.session_state.history_list.append({
-                "Q#": st.session_state.question_count,
-                "Topic": st.session_state.opt_topic,
-                "Difficulty": difficulty,
-                "Result": status
-            })
-            
-            # Save Cloud
-            row_data = [
-                timestamp,
-                st.session_state.user_name_input,
-                st.session_state.opt_grade,
-                st.session_state.opt_topic,
-                difficulty,
-                question,
-                user_ans,
-                status
-            ]
-            
-            save_to_google_sheet(row_data)
-            
-            st.session_state.last_logged = current_q_signature
-            st.session_state.reveal_answer = True 
-            
-    except Exception as e:
-        st.error(f"Error grading: {e}")
+        st.session_state.last_logged = current_q_signature
+        st.session_state.reveal_answer = True 
 
 def next_question_handler():
     st.session_state.question_count += 1
@@ -207,15 +201,14 @@ if 'init' not in st.session_state:
     st.session_state.user_input = ""
     st.session_state.feedback = ""
     st.session_state.is_finished = False
-    
     st.session_state.score_correct = 0
     st.session_state.question_count = 1 
     st.session_state.history_list = []
     st.session_state.last_logged = ""
     
     if "GEMINI_API_KEY" in st.secrets or "GEMINI_API_KEY" in os.environ:
-        st.session_state.opt_grade = "Grade 5" 
-        st.session_state.opt_topic = "Arithmetic" 
+        st.session_state.opt_grade = "Year 7 (KS3)" 
+        st.session_state.opt_topic = "Place Value & Rounding" 
         get_new_question()
 
 # --- SIDEBAR ---
@@ -230,9 +223,20 @@ with st.sidebar:
     
     st.divider()
     st.header("Settings")
-    st.selectbox("Select Grade Level", [f"Grade {i}" for i in range(1, 13)] + ["College/University"], key="opt_grade", on_change=get_new_question)
     
-    topics_list = ["Arithmetic", "Algebra", "Geometry", "Metric Conversion", "Operations on Integers", "Decimal Operations", "Fraction"]
+    # Updated Grade Levels to UK System
+    st.selectbox("Select Year Group", ["Year 7 (KS3)", "Year 8 (KS3)", "Year 9 (KS3)", "Year 10 (GCSE)", "Year 11 (GCSE)"], key="opt_grade", on_change=get_new_question)
+    
+    # Updated Topics based on your Feedback
+    topics_list = [
+        "Place Value & Rounding",
+        "Decimals",
+        "Angles & Construction",
+        "Collecting Data",
+        "Fractions",
+        "Shapes & Areas",
+        "Percentages"
+    ]
     st.selectbox("Select Topic", topics_list, key="opt_topic", on_change=get_new_question)
     
     if st.button("Restart Session"):
@@ -244,11 +248,11 @@ with st.sidebar:
         st.rerun()
 
 # --- MAIN UI ---
-st.title(f"🎓 {st.session_state.user_name_input}'s Math Test")
+st.title(f"🎓 {st.session_state.user_name_input}'s GCSE Maths Prep")
 
 if not st.session_state.is_finished:
     curr_diff = get_current_difficulty(st.session_state.question_count)
-    st.caption(f"Topic: {st.session_state.opt_topic} | Grade: {st.session_state.opt_grade} | Difficulty: **{curr_diff}**")
+    st.caption(f"Topic: {st.session_state.opt_topic} | Year: {st.session_state.opt_grade} | Level: **{curr_diff}**")
 
     st.markdown("### Question")
     st.info(st.session_state.question_text)
@@ -271,7 +275,7 @@ if not st.session_state.is_finished:
 
     if st.session_state.reveal_answer:
         st.markdown("---")
-        st.markdown("### Explanation")
+        st.markdown("### Correct Answer")
         st.write(st.session_state.answer_text)
 
 else:
