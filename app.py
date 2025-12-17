@@ -96,6 +96,8 @@ def get_new_question():
     1. The question must be clear and direct.
     2. If it is a word problem, use British English (e.g., £ for currency, metres for distance).
     3. Ensure the numbers are clean enough to be solved without a calculator if appropriate for the topic.
+    4. The question must be on tougher side.
+    5. The sample questions can be taken from www.corbettmaths.com
     
     Output exactly in this format:
     [The Question Text]
