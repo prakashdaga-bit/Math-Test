@@ -232,6 +232,7 @@ with st.sidebar:
     
     # Updated Topics based on your Feedback
     topics_list = [
+        "Algebra",
         "Place Value & Rounding",
         "Decimals",
         "Angles & Construction",
@@ -239,7 +240,6 @@ with st.sidebar:
         "Fractions",
         "Shapes & Areas",
         "Percentages"
-        "Algebra"
     ]
     st.selectbox("Select Topic", topics_list, key="opt_topic", on_change=get_new_question)
     
