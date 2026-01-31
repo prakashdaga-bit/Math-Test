@@ -61,6 +61,7 @@ def get_current_difficulty(q_number):
 def get_curriculum_context(topic):
     """Maps the high-level topic to specific GCSE sub-skills."""
     curriculum_map = {
+        "Algebra": "Algebra questions, using Algenbra to solve word probelms",
         "Place Value & Rounding": "multiplying and dividing by powers of 10, rounding to significant figures and decimal places, estimation.",
         "Decimals": "ordering decimals, adding and subtracting decimals, multiplying and dividing decimals by integers and other decimals.",
         "Angles & Construction": "sum of angles (360 degrees), intersecting lines, drawing lines and quadrilaterals, vertically opposite angles.",
@@ -209,7 +210,7 @@ if 'init' not in st.session_state:
     st.session_state.last_logged = ""
     
     if "GEMINI_API_KEY" in st.secrets or "GEMINI_API_KEY" in os.environ:
-        st.session_state.opt_grade = "Year 7 (KS3)" 
+        st.session_state.opt_grade = "Year 6 (KS3)" 
         st.session_state.opt_topic = "Place Value & Rounding" 
         get_new_question()
 
@@ -227,7 +228,7 @@ with st.sidebar:
     st.header("Settings")
     
     # Updated Grade Levels to UK System
-    st.selectbox("Select Year Group", ["Year 7 (KS3)", "Year 8 (KS3)", "Year 9 (KS3)", "Year 10 (GCSE)", "Year 11 (GCSE)"], key="opt_grade", on_change=get_new_question)
+    st.selectbox("Select Year Group", ["Year 6 (KS3)", "Year 7 (KS3)", "Year 8 (KS3)", "Year 9 (KS3)", "Year 10 (GCSE)", "Year 11 (GCSE)"], key="opt_grade", on_change=get_new_question)
     
     # Updated Topics based on your Feedback
     topics_list = [
@@ -238,6 +239,7 @@ with st.sidebar:
         "Fractions",
         "Shapes & Areas",
         "Percentages"
+        "Algebra"
     ]
     st.selectbox("Select Topic", topics_list, key="opt_topic", on_change=get_new_question)
     
