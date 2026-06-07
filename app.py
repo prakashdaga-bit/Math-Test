@@ -12,6 +12,14 @@ import threading  # NEW: For background saving
 try:
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        print("--- Available Models for generateContent ---")
+
+# 2. Loop through all models available to your account
+    for model in genai.list_models():
+    # We only care about models that can generate text/content
+        if 'generateContent' in model.supported_generation_methods:
+            print(model.name)
+        
     elif "GEMINI_API_KEY" in os.environ:
         genai.configure(api_key=os.environ["GEMINI_API_KEY"])
     else:
@@ -21,13 +29,7 @@ try:
 except Exception as e:
     st.error(f"Error configuring Gemini API: {e}")
     st.stop()
-print("--- Available Models for generateContent ---")
 
-# 2. Loop through all models available to your account
-for model in genai.list_models():
-    # We only care about models that can generate text/content
-    if 'generateContent' in model.supported_generation_methods:
-        print(model.name)
         
 # 2. Optimized Google Sheets Connection
 @st.cache_resource
