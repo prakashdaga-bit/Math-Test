@@ -60,13 +60,13 @@ def trigger_background_save(data_row):
 # --- LOGIC FUNCTIONS ---
 
 def get_current_difficulty(q_number):
-    if q_number <= 7: return "Easy (Foundation)"
-    elif q_number <= 15: return "Medium (Crossover)"
+    if q_number <= 3: return "Easy (Foundation)"
+    elif q_number <= 7: return "Medium (Crossover)"
     else: return "Hard (Higher)"
 
 
 def get_curriculum_context(topic):
-    """Maps the high-level topic to specific GCSE sub-skills."""
+    """Maps the high-level topic to specific IGCSE sub-skills."""
     curriculum_map = {
         "Integers": "Unlocking the Power of Numbers. The objective is to Understand and apply the order of operations (including brackets and indices), Estimate, multiply, and divide integers; identify patterns and generalisations, Know factors, multiples, prime factors, HCF, and LCM, Understand natural numbers, integers, and rational numbers, Use index laws for positive and zero indices in multiplication and division, Recognise squares and square roots of positive and negative numbers, Recognise cube numbers and their roots, both positive and negative.",
         "Fractions": "Identify fractions equivalent to recurring decimals. The objective is to estimate & subtract mixed numbers; simplify the result, Multiply integers by mixed numbers; divide integers by proper fractions, Apply order of operations (with brackets) to simplify expressions involving decimals and fractions.",
@@ -92,7 +92,7 @@ def get_new_question():
     sub_topic_context = get_curriculum_context(topic)
     
     prompt = f"""
-    Act as a GCSE Maths teacher creating a worksheet question similar to CorbettMaths style.
+    Act as a IGCSE Maths teacher creating a worksheet question similar to CorbettMaths style.
     
     Target Student: {grade}
     Topic: {topic}
