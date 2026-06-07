@@ -19,6 +19,8 @@ try:
     # We only care about models that can generate text/content
         if 'generateContent' in model.supported_generation_methods:
             print(model.name)
+        elif 
+            print("ERROR")
         
     elif "GEMINI_API_KEY" in os.environ:
         genai.configure(api_key=os.environ["GEMINI_API_KEY"])
