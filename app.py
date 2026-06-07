@@ -67,9 +67,9 @@ def get_current_difficulty(q_number):
 def get_curriculum_context(topic):
     """Maps the high-level topic to specific GCSE sub-skills."""
     curriculum_map = {
-        Integers : "Unlocking the Power of Numbers. The objecive is to Understand and apply the order of operations (including brackets and indices), Estimate, multiply, and divide integers; identify patterns and generalisations, Know factors, multiples, prime factors, HCF, and LCM, Understand natural numbers, integers, and rational numbers, Use index laws for positive and zero indices in multiplication and division, Recognise squares and square roots of positive and negative numbers,Recognise cube numbers and their roots, both positive and negative"
-        Fractions: "Identify fractions equivalent to recurring decimals. The objective is to estimate & subtract mixed numbers; simplify the result, Multiply integers by mixed numbers; divide integers by proper fractions, Apply order of operations (with brackets) to simplify expressions involving decimals and fractions " 
-        Decimals, Place value and Rounding  : " Multiply/divide integers & decimals using place value (e.g. ×0.1, ÷0.01), Round numbers to a given number of significant figures,Compare/order decimals & fractions using inequality symbols ,Estimate & multiply decimals by integers and decimals,Estimate & divide decimals by 1-digit decimals"
+        "Integers" : "Unlocking the Power of Numbers. The objecive is to Understand and apply the order of operations (including brackets and indices), Estimate, multiply, and divide integers; identify patterns and generalisations, Know factors, multiples, prime factors, HCF, and LCM, Understand natural numbers, integers, and rational numbers, Use index laws for positive and zero indices in multiplication and division, Recognise squares and square roots of positive and negative numbers,Recognise cube numbers and their roots, both positive and negative"
+        "Fractions" : "Identify fractions equivalent to recurring decimals. The objective is to estimate & subtract mixed numbers; simplify the result, Multiply integers by mixed numbers; divide integers by proper fractions, Apply order of operations (with brackets) to simplify expressions involving decimals and fractions " 
+        "Decimals, Place value and Rounding"  : " Multiply/divide integers & decimals using place value (e.g. ×0.1, ÷0.01), Round numbers to a given number of significant figures,Compare/order decimals & fractions using inequality symbols ,Estimate & multiply decimals by integers and decimals,Estimate & divide decimals by 1-digit decimals"
 
 }
     return curriculum_map.get(topic, "GCSE Maths curriculum")
@@ -101,6 +101,7 @@ def get_new_question():
     3. Ensure the numbers are clean enough to be solved without a calculator if appropriate for the topic.
     4. The question must be on tougher side.
     5. The sample questions can be taken from www.corbettmaths.com
+    6. Ask ONE question at a time.  DO NOT club multiple questions
     
     Output exactly in this format:
     [The Question Text]
