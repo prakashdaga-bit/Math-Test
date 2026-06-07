@@ -13,7 +13,7 @@ try:
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         print("--- Available Models for generateContent ---")
-        print(genai.list_models()
+        print(genai.list_models())
        
         
     elif "GEMINI_API_KEY" in os.environ:
