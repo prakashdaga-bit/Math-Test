@@ -73,7 +73,7 @@ def get_curriculum_context(topic):
     return curriculum_map.get(topic, "GCSE Maths curriculum")
 
 def get_new_question():
-    model = genai.GenerativeModel("models/gemini-2.5-flash")
+    model = genai.GenerativeModel("models/gemini-3.1-pro")
     
     if st.session_state.question_count > 25:
         st.session_state.question_text = "🎉 You have completed all 25 questions! Great job."
