@@ -17,6 +17,10 @@ try:
     else:
         st.error("Missing GEMINI_API_KEY! Please check your secrets.toml.")
         st.stop()
+
+except Exception as e:
+    st.error(f"Error configuring Gemini API: {e}")
+    st.stop()
 print("--- Available Models for generateContent ---")
 
 # 2. Loop through all models available to your account
@@ -25,10 +29,6 @@ for model in genai.list_models():
     if 'generateContent' in model.supported_generation_methods:
         print(model.name)
         
-except Exception as e:
-    st.error(f"Error configuring Gemini API: {e}")
-    st.stop()
-
 # 2. Optimized Google Sheets Connection
 @st.cache_resource
 def get_google_sheet_client():
