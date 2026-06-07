@@ -9,6 +9,7 @@ import threading  # NEW: For background saving
 # --- CONFIGURATION & SETUP ---
 
 # 1. API Key Setup
+print(genai.list_models())
 try:
     if "GEMINI_API_KEY" in st.secrets:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
